@@ -425,7 +425,30 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 使用配置的DEX添加流动性监控金额阈值
             min_amount = Decimal(str(settings.dex_add_liquidity_amount))
-            return True
+            
+            # 检查添加流动性的SOL金额
+            if analysis.liquidity_info:
+                def is_sol_token(token):
+                    """检查代币是否为SOL"""
+                    return token and (
+                        token.symbol == "SOL" or 
+                        token.mint == "So11111111111111111111111111111111111111112"
+                    )
+                
+                # 检查流动性池中是否包含SOL，并检查SOL的数量
+                if (analysis.liquidity_info.token_a and is_sol_token(analysis.liquidity_info.token_a) and 
+                    analysis.liquidity_info.amount_a):
+                    sol_amount = float(analysis.liquidity_info.amount_a)
+                    if sol_amount >= min_amount:
+                        return True
+                
+                if (analysis.liquidity_info.token_b and is_sol_token(analysis.liquidity_info.token_b) and 
+                    analysis.liquidity_info.amount_b):
+                    sol_amount = float(analysis.liquidity_info.amount_b)
+                    if sol_amount >= min_amount:
+                        return True
+            
+            return False
 
         except Exception as e:
             logger.warning(f"检查添加流动性失败: {str(e)}")
