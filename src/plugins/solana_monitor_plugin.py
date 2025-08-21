@@ -98,24 +98,26 @@ class SolanaMonitorPlugin(MonitorPlugin):
             async with self.solana_client as client:
                 for wallet in monitored_wallets:
                     try:
-                        logger.debug(f"检查钱包 {wallet.address[:8]}... (last_signature: {wallet.last_signature[:16] if wallet.last_signature else 'None'}...)")
-                        
+                        logger.debug(
+                            f"检查钱包 {wallet.address[:8]}... (last_signature: {wallet.last_signature[:16] if wallet.last_signature else 'None'}...)")
+
                         # 获取钱包最新交易
                         signatures = await client.get_signatures_for_address(
                             wallet.address,
                             limit=50,  # 增加限制以便过滤
-                            before=wallet.last_signature
+                            until=wallet.last_signature  # 修复：获取last_signature之后的新交易
                         )
 
                         if signatures:
                             # 过滤只获取当天的交易
                             today_signatures = self._filter_today_signatures(signatures)
-                            logger.debug(f"钱包 {wallet.address[:8]}... 获取到 {len(signatures)} 笔交易，当天交易 {len(today_signatures)} 笔")
-                            
-                            # **关键修复：进一步过滤掉已经处理过的签名**
-                            new_signatures = self._filter_new_signatures(today_signatures, wallet.last_signature)
-                            logger.debug(f"钱包 {wallet.address[:8]}... 过滤后新交易 {len(new_signatures)} 笔")
-                            
+                            logger.debug(
+                                f"钱包 {wallet.address[:8]}... 获取到 {len(signatures)} 笔交易，当天交易 {len(today_signatures)} 笔")
+
+                            # 由于使用after参数，today_signatures已经都是新交易，无需额外过滤
+                            new_signatures = today_signatures
+                            logger.debug(f"钱包 {wallet.address[:8]}... 当天新交易 {len(new_signatures)} 笔")
+
                             if new_signatures:
                                 # 分析交易
                                 analyzed_transactions = []
@@ -123,13 +125,13 @@ class SolanaMonitorPlugin(MonitorPlugin):
                                     try:
                                         # 提取签名字符串
                                         signature_str = self._extract_signature_string(signature_obj)
-                                        
+
                                         if signature_str:
                                             # **关键修复：检查交易是否已经在数据库中处理过**
                                             if self.solana_monitor.is_transaction_processed(signature_str):
                                                 logger.debug(f"跳过已处理交易: {signature_str[:16]}...")
                                                 continue
-                                            
+
                                             tx = await client.get_transaction(signature_str)
                                             if tx:
                                                 analysis = await self.solana_analyzer.analyze_transaction(tx)
@@ -153,7 +155,7 @@ class SolanaMonitorPlugin(MonitorPlugin):
                         if signatures:
                             # 提取最新签名字符串（从签名对象中）
                             latest_signature = self._extract_signature_string(signatures[0])
-                            
+
                             if latest_signature:
                                 self.solana_monitor.update_wallet_check_info(
                                     wallet.address,
@@ -191,7 +193,7 @@ class SolanaMonitorPlugin(MonitorPlugin):
         try:
             # 按区块时间排序（从早到晚）
             analyzed_transactions.sort(key=lambda tx: getattr(tx.transaction, 'block_time', 0) or 0)
-            
+
             # 筛选重要交易
             important_transactions = []
 
@@ -223,22 +225,22 @@ class SolanaMonitorPlugin(MonitorPlugin):
         """按时间顺序触发通知，确保早的交易先通知"""
         try:
             logger.info(f"开始按时间顺序发送 {len(important_transactions)} 笔交易通知")
-            
+
             for i, analysis in enumerate(important_transactions):
                 try:
                     block_time = getattr(analysis.transaction, 'block_time', None)
-                    logger.debug(f"发送第 {i+1} 笔交易通知，区块时间: {block_time}")
-                    
+                    logger.debug(f"发送第 {i + 1} 笔交易通知，区块时间: {block_time}")
+
                     # 发送单笔交易通知
                     await self._trigger_single_notification(wallet, analysis)
-                    
+
                     # 添加小延迟确保通知顺序（可选）
                     await asyncio.sleep(0.1)
-                    
+
                 except Exception as e:
-                    logger.error(f"发送第 {i+1} 笔交易通知失败: {str(e)}")
+                    logger.error(f"发送第 {i + 1} 笔交易通知失败: {str(e)}")
                     continue
-                    
+
         except Exception as e:
             logger.error(f"按顺序触发通知失败: {str(e)}")
 
@@ -249,7 +251,7 @@ class SolanaMonitorPlugin(MonitorPlugin):
             amount = 0
             token_symbol = "SOL"
             token_name = "Solana"
-            
+
             if analysis.transfer_info:
                 amount = float(analysis.transfer_info.amount)
                 token_symbol = analysis.transfer_info.token.symbol or "SOL"
@@ -280,15 +282,16 @@ class SolanaMonitorPlugin(MonitorPlugin):
             }
 
             # 调试日志
-            logger.debug(f"准备发送通知 - 交易类型: {notification_data['transaction_type']}, 美元价值: ${notification_data['amount_usd']}")
+            logger.debug(
+                f"准备发送通知 - 交易类型: {notification_data['transaction_type']}, 美元价值: ${notification_data['amount_usd']}")
 
             # 发送通知 - 使用已导入的notification_engine
             await notification_engine.check_solana_rules(notification_data)
-            
+
             logger.info(f"发现重要交易: {wallet.address} - "
                         f"{analysis.transaction_type.value} - "
                         f"${analysis.total_value_usd}")
-                
+
         except Exception as e:
             logger.error(f"触发单笔通知失败: {str(e)}")
 
@@ -297,83 +300,42 @@ class SolanaMonitorPlugin(MonitorPlugin):
         try:
             # 根据交易类型进行不同的判断逻辑
             transaction_type = analysis.transaction_type
-            
-            # 添加调试信息
-            logger.info(f"🔍 检查交易重要性: 类型={transaction_type.value}, 美元价值={analysis.total_value_usd}")
 
             # SOL转账交易
             if transaction_type == TransactionType.SOL_TRANSFER:
-                result = self._check_sol_transfer(analysis, wallet)
-                logger.info(f"SOL转账检查结果: {result}")
-                if result:
-                    return True
+                return self._check_sol_transfer(analysis, wallet)
 
             # 代币转账交易
             elif transaction_type == TransactionType.TOKEN_TRANSFER:
-                result = self._check_token_transfer(analysis, wallet)
-                logger.info(f"代币转账检查结果: {result}")
-                if result:
-                    return True
+                return self._check_token_transfer(analysis, wallet)
 
             # DEX交换交易
             elif transaction_type == TransactionType.DEX_SWAP:
-                result = self._check_dex_swap(analysis, wallet)
-                logger.info(f"DEX交换检查结果: {result}")
-                if result:
-                    return True
+                return self._check_dex_swap(analysis, wallet)
 
             # DEX添加流动性
             elif transaction_type == TransactionType.DEX_ADD_LIQUIDITY:
-                result = self._check_dex_add_liquidity(analysis, wallet)
-                logger.info(f"DEX添加流动性检查结果: {result}")
-                if result:
-                    return True
+                return self._check_dex_add_liquidity(analysis, wallet)
 
             # DEX移除流动性
             elif transaction_type == TransactionType.DEX_REMOVE_LIQUIDITY:
-                result = self._check_dex_remove_liquidity(analysis, wallet)
-                logger.info(f"DEX移除流动性检查结果: {result}")
-                if result:
-                    return True
+                return self._check_dex_remove_liquidity(analysis, wallet)
 
             # 代币铸造
             elif transaction_type == TransactionType.TOKEN_MINT:
-                result = self._check_token_mint(analysis, wallet)
-                logger.info(f"代币铸造检查结果: {result}")
-                if result:
-                    return True
+                return self._check_token_mint(analysis, wallet)
 
             # 代币销毁
             elif transaction_type == TransactionType.TOKEN_BURN:
-                result = self._check_token_burn(analysis, wallet)
-                logger.info(f"代币销毁检查结果: {result}")
-                if result:
-                    return True
+                return self._check_token_burn(analysis, wallet)
 
             # 程序交互
             elif transaction_type == TransactionType.PROGRAM_INTERACTION:
-                result = self._check_program_interaction(analysis, wallet)
-                logger.info(f"程序交互检查结果: {result}")
-                if result:
-                    return True
+                return self._check_program_interaction(analysis, wallet)
 
             # 未知类型，使用通用逻辑
             else:
-                logger.info(f"未知交易类型: {transaction_type.value}")
-            
-            # 🔧 临时兜底逻辑：确保至少有一些交易被处理（用于调试）
-            # 如果有任何转账信息或交换信息，都认为是重要交易
-            if analysis.transfer_info or analysis.swap_info:
-                logger.info(f"✅ 兜底逻辑: 检测到转账或交换信息，认为是重要交易")
-                return True
-            
-            # 如果有任何美元价值，也认为是重要交易
-            if analysis.total_value_usd and analysis.total_value_usd > 0:
-                logger.info(f"✅ 兜底逻辑: 检测到美元价值 ${analysis.total_value_usd}，认为是重要交易")
-                return True
-                
-            logger.info(f"❌ 交易未满足任何重要性条件")
-            return False
+                return False
 
         except Exception as e:
             logger.warning(f"判断交易重要性失败: {str(e)}")
@@ -386,25 +348,6 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 获取配置的SOL转账监控金额阈值
             min_amount = Decimal(str(settings.sol_transfer_amount))
-            current_usd = analysis.total_value_usd or 0
-            
-            logger.debug(f"SOL转账检查: 当前美元价值={current_usd}, 阈值={min_amount}")
-            
-            # 检查美元价值
-            if current_usd >= min_amount:
-                logger.info(f"✅ SOL转账超过阈值: ${current_usd} >= ${min_amount}")
-                return True
-            
-            # 临时降低阈值或添加其他条件来确保有交易被处理
-            # 如果美元价值为0或None，但有转账信息，也认为重要
-            if analysis.transfer_info and analysis.transfer_info.amount:
-                amount = float(analysis.transfer_info.amount)
-                logger.debug(f"检测到SOL转账: {amount} SOL")
-                if amount > 0:  # 任何数量的SOL转账都认为重要（用于调试）
-                    logger.info(f"✅ 检测到SOL转账: {amount} SOL (调试模式)")
-                    return True
-            
-            logger.debug(f"❌ SOL转账未满足条件: 美元价值={current_usd}, 阈值={min_amount}")
             return False
 
         except Exception as e:
@@ -418,10 +361,7 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 使用配置的代币转账监控金额阈值
             min_amount = Decimal(str(settings.token_transfer_amount))
-            if analysis.total_value_usd and analysis.total_value_usd >= min_amount:
-                return True
-
-            return False
+            return True
 
         except Exception as e:
             logger.warning(f"检查代币转账失败: {str(e)}")
@@ -434,27 +374,7 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 使用配置的DEX交换监控金额阈值
             min_amount = Decimal(str(settings.dex_swap_amount))
-            current_usd = analysis.total_value_usd or 0
-            
-            logger.debug(f"DEX交换检查: 当前美元价值={current_usd}, 阈值={min_amount}")
-            
-            if current_usd >= min_amount:
-                logger.info(f"✅ DEX交换超过阈值: ${current_usd} >= ${min_amount}")
-                return True
-
-            # 检查是否有交换信息
-            if analysis.swap_info:
-                from_amount = float(analysis.swap_info.from_amount) if analysis.swap_info.from_amount else 0
-                to_amount = float(analysis.swap_info.to_amount) if analysis.swap_info.to_amount else 0
-                logger.debug(f"检测到DEX交换: {from_amount} -> {to_amount}")
-                
-                # 临时：所有DEX交换都认为重要（用于调试）
-                if from_amount > 0 or to_amount > 0:
-                    logger.info(f"✅ 检测到DEX交换 (调试模式): {from_amount} -> {to_amount}")
-                    return True
-
-            logger.debug(f"❌ DEX交换未满足条件: 美元价值={current_usd}, 阈值={min_amount}")
-            return False
+            return True
 
         except Exception as e:
             logger.warning(f"检查DEX交换失败: {str(e)}")
@@ -467,10 +387,7 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 使用配置的DEX添加流动性监控金额阈值
             min_amount = Decimal(str(settings.dex_add_liquidity_amount))
-            if analysis.total_value_usd and analysis.total_value_usd >= min_amount:
-                return True
-
-            return False
+            return True
 
         except Exception as e:
             logger.warning(f"检查添加流动性失败: {str(e)}")
@@ -483,10 +400,7 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 使用配置的DEX移除流动性监控金额阈值
             min_amount = Decimal(str(settings.dex_remove_liquidity_amount))
-            if analysis.total_value_usd and analysis.total_value_usd >= min_amount:
-                return True
-
-            return False
+            return True
 
         except Exception as e:
             logger.warning(f"检查移除流动性失败: {str(e)}")
@@ -529,11 +443,11 @@ class SolanaMonitorPlugin(MonitorPlugin):
         """过滤出当天的交易签名"""
         if not signatures:
             return []
-        
+
         try:
             today = datetime.now().date()
             today_signatures = []
-            
+
             for signature in signatures:
                 try:
                     # 从签名信息中获取区块时间
@@ -553,10 +467,10 @@ class SolanaMonitorPlugin(MonitorPlugin):
                     logger.warning(f"过滤签名 {signature} 时间失败: {str(e)}")
                     # 如果解析失败，保守起见包含在内
                     today_signatures.append(signature)
-            
+
             logger.debug(f"从 {len(signatures)} 个签名中过滤出当天的 {len(today_signatures)} 个")
             return today_signatures
-            
+
         except Exception as e:
             logger.error(f"过滤当天签名失败: {str(e)}")
             # 如果过滤失败，返回所有签名
@@ -575,24 +489,24 @@ class SolanaMonitorPlugin(MonitorPlugin):
         """
         if not signatures or not last_signature:
             return signatures
-            
+
         try:
             new_signatures = []
-            
+
             for signature_obj in signatures:
                 signature_str = self._extract_signature_string(signature_obj)
-                
+
                 # 如果找到了last_signature，停止添加（因为这个及之后的都是已处理的）
                 if signature_str == last_signature:
                     logger.debug(f"找到last_signature {last_signature[:16]}...，停止收集新签名")
                     break
-                    
+
                 # 这是新的签名，添加到列表
                 new_signatures.append(signature_obj)
-            
+
             logger.debug(f"从 {len(signatures)} 个签名中过滤出 {len(new_signatures)} 个新签名")
             return new_signatures
-            
+
         except Exception as e:
             logger.error(f"过滤新签名失败: {str(e)}")
             # 如果过滤失败，为安全起见返回空列表，避免重复处理
