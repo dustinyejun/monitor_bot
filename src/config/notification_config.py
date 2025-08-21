@@ -54,6 +54,8 @@ NOTIFICATION_TEMPLATES = {
 - 金额: {amount} {token_symbol}
 - 代币: {token_name} ({token_symbol})
 
+{sol_transfer_info}
+
 {dex_swap_info}
 
 ⏰ **时间**: {block_time}""",

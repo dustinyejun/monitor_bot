@@ -135,9 +135,14 @@ class SolanaMonitorPlugin(MonitorPlugin):
                                             tx = await client.get_transaction(signature_str)
                                             if tx:
                                                 analysis = await self.solana_analyzer.analyze_transaction(tx)
-                                                # 确保分析结果包含钱包地址
-                                                if not hasattr(analysis, 'wallet_address'):
-                                                    analysis.wallet_address = wallet.address
+                                                # 设置钱包地址用于转账方向判断
+                                                analysis.wallet_address = wallet.address
+                                                
+                                                # 如果是SOL转账，重新分析转账方向信息
+                                                if (analysis.transaction_type == TransactionType.SOL_TRANSFER and 
+                                                    analysis.transfer_info and 
+                                                    not analysis.transfer_info.direction):
+                                                    await self.solana_analyzer._reanalyze_transfer_direction(analysis)
                                                 analyzed_transactions.append(analysis)
                                                 logger.debug(f"分析交易成功: {signature_str[:16]}...")
                                         else:
@@ -279,7 +284,8 @@ class SolanaMonitorPlugin(MonitorPlugin):
                 "token_name": token_name,
                 "solscan_url": f"https://solscan.io/tx/{analysis.transaction.signature}",
                 "block_time": block_time,
-                "dex_swap_info": ""  # 默认为空
+                "dex_swap_info": "",  # 默认为空
+                "sol_transfer_info": ""  # 默认为空
             }
 
             # 如果是DEX交换，获取代币购买统计
@@ -318,6 +324,34 @@ class SolanaMonitorPlugin(MonitorPlugin):
                     
                 except Exception as e:
                     logger.error(f"获取DEX交换统计信息失败: {e}")
+                    # 保持默认的空信息，不影响通知发送
+
+            # 如果是SOL转账，获取转账详情
+            if analysis.transaction_type == TransactionType.SOL_TRANSFER and analysis.transfer_info:
+                try:
+                    # 获取转账方向和对方地址
+                    direction = analysis.transfer_info.direction
+                    counterpart_address = analysis.transfer_info.counterpart_address
+                    
+                    if direction and counterpart_address:
+                        # 格式化转账方向文本
+                        direction_text = "转入" if direction == "in" else "转出"
+                        
+                        # 格式化SOL转账信息（简化版，只显示方向和对方地址）
+                        sol_transfer_info = f"""💸 **转账详情**
+- 方向: {direction_text}
+- 对方地址: `{counterpart_address}`"""
+                        
+                        # 更新通知数据
+                        notification_data.update({
+                            "transfer_direction": direction,
+                            "transfer_direction_text": direction_text,
+                            "counterpart_address": counterpart_address,
+                            "sol_transfer_info": sol_transfer_info
+                        })
+                        
+                except Exception as e:
+                    logger.error(f"获取SOL转账详情失败: {e}")
                     # 保持默认的空信息，不影响通知发送
 
             # 调试日志

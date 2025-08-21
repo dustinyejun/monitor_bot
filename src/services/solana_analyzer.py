@@ -85,6 +85,10 @@ class TransferInfo:
     token: TokenInfo
     amount: Decimal
     amount_usd: Optional[Decimal] = None
+    # 新增字段用于SOL_TRANSFER功能增强
+    direction: Optional[str] = None  # 'in' 或 'out'，相对于监控钱包
+    counterpart_address: Optional[str] = None  # 对方钱包地址
+    counterpart_label: Optional[str] = None  # 对方地址标签
     
     def __post_init__(self):
         if isinstance(self.amount, (int, float, str)):
@@ -317,6 +321,10 @@ class SolanaAnalyzer:
             return
             
         # 找到余额变化
+        from_address = None
+        to_address = None
+        amount = Decimal('0')
+        
         for i, (pre, post) in enumerate(zip(transaction.pre_balances, transaction.post_balances)):
             if pre != post and i < len(transaction.accounts):
                 change = post - pre
@@ -328,7 +336,7 @@ class SolanaAnalyzer:
                     to_address = transaction.accounts[i] if isinstance(transaction.accounts[i], str) else transaction.accounts[i].get('pubkey', '')
                     
         # 创建转账信息
-        if 'from_address' in locals() and 'to_address' in locals():
+        if from_address and to_address:
             sol_token = TokenInfo(
                 mint=self.sol_addresses["native_sol"],
                 symbol="SOL",
@@ -336,12 +344,140 @@ class SolanaAnalyzer:
                 decimals=9
             )
             
+            # 确定转账方向和对方地址（需要监控钱包地址）
+            direction = None
+            counterpart_address = None
+            
+            # 如果结果中包含钱包地址信息，则确定方向
+            if hasattr(result, 'wallet_address') and result.wallet_address:
+                direction, counterpart_address = self._determine_transfer_direction(transaction, result.wallet_address)
+                logger.debug(f"转账分析 - 钱包: {result.wallet_address}, 方向: {direction}, 对方: {counterpart_address}")
+            else:
+                logger.warning(f"转账分析缺少钱包地址信息 - 签名: {transaction.signature}")
+            
             result.transfer_info = TransferInfo(
                 from_address=from_address,
                 to_address=to_address,
                 token=sol_token,
-                amount=amount
+                amount=amount,
+                direction=direction,
+                counterpart_address=counterpart_address
             )
+
+    async def _reanalyze_transfer_direction(self, result: AnalysisResult):
+        """重新分析转账方向信息（当钱包地址在分析后才设置时）"""
+        try:
+            if not result.transfer_info or not hasattr(result, 'wallet_address'):
+                return
+                
+            # 重新确定转账方向和对方地址
+            direction, counterpart_address = self._determine_transfer_direction(
+                result.transaction, 
+                result.wallet_address
+            )
+            
+            # 更新转账信息
+            result.transfer_info.direction = direction
+            result.transfer_info.counterpart_address = counterpart_address
+            
+            logger.debug(f"重新分析转账方向 - 钱包: {result.wallet_address}, 方向: {direction}, 对方: {counterpart_address}")
+            
+        except Exception as e:
+            logger.error(f"重新分析转账方向失败: {e}")
+
+    def _determine_transfer_direction(self, transaction, wallet_address: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        确定转账方向和对方地址
+        
+        Args:
+            transaction: Solana交易对象
+            wallet_address: 监控的钱包地址
+            
+        Returns:
+            Tuple[direction, counterpart_address] 
+            direction: 'in' (转入) 或 'out' (转出)
+            counterpart_address: 对方钱包地址
+        """
+        try:
+            if not transaction.pre_balances or not transaction.post_balances or not transaction.accounts:
+                return None, None
+            
+            # 找到监控钱包在账户列表中的索引
+            wallet_index = None
+            for i, account in enumerate(transaction.accounts):
+                account_address = account if isinstance(account, str) else account.get('pubkey', '')
+                if account_address == wallet_address:
+                    wallet_index = i
+                    break
+            
+            if wallet_index is None:
+                return None, None
+            
+            # 检查监控钱包的余额变化
+            if wallet_index < len(transaction.pre_balances) and wallet_index < len(transaction.post_balances):
+                pre_balance = transaction.pre_balances[wallet_index]
+                post_balance = transaction.post_balances[wallet_index]
+                balance_change = post_balance - pre_balance
+                
+                # 找到对方地址（余额变化相反的地址）
+                counterpart_address = None
+                for i, (pre, post) in enumerate(zip(transaction.pre_balances, transaction.post_balances)):
+                    if i != wallet_index and i < len(transaction.accounts):
+                        other_change = post - pre
+                        
+                        # 如果这个地址的余额变化与监控钱包相反，可能是对方
+                        if (balance_change > 0 and other_change < 0) or (balance_change < 0 and other_change > 0):
+                            account = transaction.accounts[i]
+                            counterpart_address = account if isinstance(account, str) else account.get('pubkey', '')
+                            
+                            # 过滤掉系统程序地址和已知程序地址
+                            if counterpart_address and not self._is_system_address(counterpart_address):
+                                break
+                
+                # 确定方向
+                if balance_change > 0:
+                    return 'in', counterpart_address  # 转入
+                elif balance_change < 0:
+                    return 'out', counterpart_address  # 转出
+                else:
+                    return None, None  # 无余额变化
+            
+            return None, None
+            
+        except Exception as e:
+            # 记录错误但不影响主流程
+            import logging
+            logging.warning(f"确定转账方向失败: {e}")
+            return None, None
+
+    def _is_system_address(self, address: str) -> bool:
+        """
+        判断是否为系统程序地址
+        
+        Args:
+            address: 地址字符串
+            
+        Returns:
+            bool: 是否为系统地址
+        """
+        system_addresses = {
+            '11111111111111111111111111111111',  # System Program
+            'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',  # Token Program
+            'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',  # Associated Token Program
+            'ComputeBudget111111111111111111111111111111',  # Compute Budget Program
+            'SysvarRent111111111111111111111111111111111',  # Sysvar Rent
+            'SysvarC1ock11111111111111111111111111111111',  # Sysvar Clock
+        }
+        
+        # 检查是否为已知系统地址
+        if address in system_addresses:
+            return True
+            
+        # 检查是否为已知程序地址
+        if hasattr(self, 'known_programs') and address in self.known_programs.values():
+            return True
+            
+        return False
             
     async def _calculate_total_value(self, result: AnalysisResult):
         """计算交易总价值"""
