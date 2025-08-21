@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__serena__list_dir",
+      "mcp__serena__write_memory",
+      "Bash(mkdir:*)",
+      "Bash(rm:*)",
+      "Bash(alembic init:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv add:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(mv:*)",
+      "Bash(uv run:*)",
+      "mcp__serena__activate_project",
+      "Bash(python test_wechat_simple.py:*)",
+      "Bash(python test_wechat_curl.py:*)",
+      "Bash(python test:*)",
+      "mcp__serena__search_for_pattern",
+      "mcp__serena__find_symbol",
+      "mcp__serena__find_file",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(python:*)",
+      "mcp__serena__replace_symbol_body",
+      "mcp__serena__replace_regex",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__insert_after_symbol",
+      "mcp__serena__insert_before_symbol"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

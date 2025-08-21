@@ -1,0 +1,49 @@
+{
+  "templates": [
+    {
+      "name": "twitter_ca_alert",
+      "type": "twitter", 
+      "title_template": "🚨 CA地址推文提醒",
+      "content_template": "### 📱 用户: {username}\n**推文内容**: {content}\n\n**CA地址**: `{ca_addresses}`\n\n**推文链接**: {tweet_url}\n**发布时间**: {tweet_created_at}",
+      "is_active": true,
+      "is_urgent": true,
+      "channel": "wechat",
+      "dedup_enabled": true,
+      "dedup_window_seconds": 300,
+      "variables": {
+        "username": "推特用户名",
+        "content": "推文内容",
+        "ca_addresses": "CA地址列表", 
+        "tweet_url": "推文链接",
+        "tweet_created_at": "发布时间"
+      }
+    },
+    {
+      "name": "solana_large_transaction",
+      "type": "solana",
+      "title_template": "💰 大额交易提醒", 
+      "content_template": "### 💰 钱包: {wallet_alias}\n**交易类型**: {transaction_type}\n**金额**: {amount} {token_symbol}\n**USD价值**: ${amount_usd:,.2f}\n\n**代币**: {token_name} ({token_symbol})\n**CA地址**: `{token_address}`\n**购买笔数**: 第 {purchase_count} 笔 (该代币)\n\n**📊 该代币投资统计**:\n- 总购买金额: {total_token_amount} {token_symbol}\n- 总投资价值: ${total_invested_usd:,.2f}\n- 平均单笔: ${avg_purchase_usd:,.2f}\n\n**交易签名**: `{signature}`\n**浏览器链接**: {solscan_url}\n**交易时间**: {block_time}",
+      "is_active": true,
+      "is_urgent": true,
+      "channel": "wechat", 
+      "dedup_enabled": true,
+      "dedup_window_seconds": 60,
+      "variables": {
+        "wallet_alias": "钱包别名",
+        "transaction_type": "交易类型",
+        "amount": "交易金额",
+        "token_symbol": "代币符号",
+        "amount_usd": "USD价值",
+        "token_name": "代币名称",
+        "token_address": "代币CA地址",
+        "purchase_count": "购买笔数",
+        "total_token_amount": "总购买代币数量",
+        "total_invested_usd": "总投资USD价值",
+        "avg_purchase_usd": "平均单笔投资金额",
+        "signature": "交易签名",
+        "solscan_url": "区块链浏览器链接",
+        "block_time": "交易时间"
+      }
+    }
+  ]
+}
