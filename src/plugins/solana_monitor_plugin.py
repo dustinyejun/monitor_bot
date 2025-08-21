@@ -391,33 +391,26 @@ class SolanaMonitorPlugin(MonitorPlugin):
             
             # 检查DEX交换的金额
             if analysis.swap_info:
-                # 检查是否是SOL相关的交换（SOL兑换其他代币，或其他代币兑换SOL）
-                is_sol_swap = False
+                def is_sol_token(token):
+                    """检查代币是否为SOL"""
+                    return token and (
+                        token.symbol == "SOL" or 
+                        token.mint == "So11111111111111111111111111111111111111112"
+                    )
                 
-                # 检查from_token是否是SOL
-                if analysis.swap_info.from_token and (
-                    analysis.swap_info.from_token.symbol == "SOL" or 
-                    analysis.swap_info.from_token.mint == "So11111111111111111111111111111111111111112"  # SOL的mint地址
-                ):
-                    is_sol_swap = True
-                    
-                # 检查to_token是否是SOL
-                if analysis.swap_info.to_token and (
-                    analysis.swap_info.to_token.symbol == "SOL" or 
-                    analysis.swap_info.to_token.mint == "So11111111111111111111111111111111111111112"
-                ):
-                    is_sol_swap = True
+                # SOL -> 其他代币：检查from_amount（SOL数量）
+                if (is_sol_token(analysis.swap_info.from_token) and 
+                    analysis.swap_info.from_amount):
+                    sol_amount = float(analysis.swap_info.from_amount)
+                    if sol_amount >= min_amount:
+                        return True
                 
-                # 只有涉及SOL的交换才进行金额检查
-                if is_sol_swap:
-                    if analysis.swap_info.from_amount:
-                        from_amount = float(analysis.swap_info.from_amount)
-                        if from_amount >= min_amount:
-                            return True
-                    if analysis.swap_info.to_amount:
-                        to_amount = float(analysis.swap_info.to_amount)
-                        if to_amount >= min_amount:
-                            return True
+                # 其他代币 -> SOL：检查to_amount（SOL数量）
+                if (is_sol_token(analysis.swap_info.to_token) and 
+                    analysis.swap_info.to_amount):
+                    sol_amount = float(analysis.swap_info.to_amount)
+                    if sol_amount >= min_amount:
+                        return True
             
             return False
 
