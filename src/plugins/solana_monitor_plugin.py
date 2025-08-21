@@ -278,8 +278,47 @@ class SolanaMonitorPlugin(MonitorPlugin):
                 "token_symbol": token_symbol,
                 "token_name": token_name,
                 "solscan_url": f"https://solscan.io/tx/{analysis.transaction.signature}",
-                "block_time": block_time
+                "block_time": block_time,
+                "dex_swap_info": ""  # 默认为空
             }
+
+            # 如果是DEX交换，获取代币购买统计
+            if analysis.transaction_type == TransactionType.DEX_SWAP and analysis.swap_info:
+                try:
+                    # 获取代币CA地址
+                    token_ca = analysis.swap_info.to_token.mint
+                    
+                    # 获取购买统计
+                    purchase_stats = self.solana_monitor.get_token_purchase_stats(
+                        wallet.id, 
+                        token_ca, 
+                        datetime.fromtimestamp(analysis.transaction.block_time)
+                    )
+                    
+                    # 格式化DEX交换信息
+                    dex_swap_info = f"""🔄 **DEX交换详情**
+- 从: {analysis.swap_info.from_amount} {analysis.swap_info.from_token.symbol}
+- 到: {analysis.swap_info.to_amount} {analysis.swap_info.to_token.symbol}
+- CA地址: `{token_ca}`
+- 购买次数: 第 {purchase_stats['purchase_count']} 次
+- 累计投入: {purchase_stats['total_sol_amount']:.4f} SOL (${purchase_stats['total_usd_amount']:.2f})"""
+                    
+                    # 更新通知数据
+                    notification_data.update({
+                        "from_amount": analysis.swap_info.from_amount,
+                        "from_token_symbol": analysis.swap_info.from_token.symbol,
+                        "to_amount": analysis.swap_info.to_amount,
+                        "to_token_symbol": analysis.swap_info.to_token.symbol,
+                        "token_ca_address": token_ca,
+                        "purchase_count": purchase_stats['purchase_count'],
+                        "total_purchase_amount": purchase_stats['total_sol_amount'],
+                        "total_purchase_usd": purchase_stats['total_usd_amount'],
+                        "dex_swap_info": dex_swap_info
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"获取DEX交换统计信息失败: {e}")
+                    # 保持默认的空信息，不影响通知发送
 
             # 调试日志
             logger.debug(

@@ -54,6 +54,8 @@ NOTIFICATION_TEMPLATES = {
 - 金额: {amount} {token_symbol}
 - 代币: {token_name} ({token_symbol})
 
+{dex_swap_info}
+
 ⏰ **时间**: {block_time}""",
         is_urgent=False,
         channel="wechat",

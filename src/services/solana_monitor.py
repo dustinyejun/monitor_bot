@@ -7,7 +7,7 @@ import asyncio
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, desc
+from sqlalchemy import select, and_, desc, text
 from decimal import Decimal
 
 from ..config.database import get_db_session, SessionLocal
@@ -709,4 +709,64 @@ class SolanaMonitorService:
                 'total_value_usd': total_value,
                 'unprocessed_transactions': len([t for t in all_transactions if not t.is_processed]),
                 'unnotified_transactions': len([t for t in all_transactions if not t.is_notified])
+            }
+
+    def get_token_purchase_stats(self, wallet_id: int, token_address: str, before_time: datetime) -> dict:
+        """
+        获取代币购买统计信息
+        
+        Args:
+            wallet_id: 钱包ID
+            token_address: 代币合约地址
+            before_time: 统计截止时间
+            
+        Returns:
+            {
+                'purchase_count': int,      # 购买次数
+                'total_sol_amount': float,  # 累计SOL金额
+                'total_usd_amount': float   # 累计USD金额
+            }
+        """
+        try:
+            with DatabaseManager.get_session() as session:
+                # 查询该钱包购买指定代币的所有DEX交换记录
+                result = session.execute(
+                    text("""
+                        SELECT 
+                            COUNT(*) as purchase_count,
+                            COALESCE(SUM(amount), 0) as total_amount,
+                            COALESCE(SUM(amount_usd), 0) as total_amount_usd
+                        FROM solana_transactions 
+                        WHERE wallet_id = :wallet_id 
+                          AND transaction_type = 'dex_swap'
+                          AND token_address = :token_address
+                          AND created_at <= :before_time
+                    """),
+                    {
+                        'wallet_id': wallet_id,
+                        'token_address': token_address,
+                        'before_time': before_time
+                    }
+                ).fetchone()
+                
+                if result:
+                    return {
+                        'purchase_count': result.purchase_count or 0,
+                        'total_sol_amount': float(result.total_amount or 0),
+                        'total_usd_amount': float(result.total_amount_usd or 0)
+                    }
+                else:
+                    return {
+                        'purchase_count': 0,
+                        'total_sol_amount': 0.0,
+                        'total_usd_amount': 0.0
+                    }
+                    
+        except Exception as e:
+            logger.error(f"获取代币购买统计失败: {e}")
+            # 返回空统计，避免影响通知发送
+            return {
+                'purchase_count': 0,
+                'total_sol_amount': 0.0,
+                'total_usd_amount': 0.0
             }
