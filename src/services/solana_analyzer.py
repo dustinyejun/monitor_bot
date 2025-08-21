@@ -3,17 +3,14 @@ Solana交易分析器
 负责分析Solana交易，识别DEX交易、代币转账等，并计算价值
 """
 
-import re
 import asyncio
-import aiohttp
-from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
-from enum import Enum
-from decimal import Decimal
-import json
 from datetime import datetime
+from decimal import Decimal
+from enum import Enum
+from typing import Dict, List, Optional, Any, Tuple
 
-from .solana_client import SolanaTransaction, SolanaTokenInfo
+from .solana_client import SolanaTransaction
 from ..utils.logger import logger
 
 
@@ -40,6 +37,7 @@ class DEXPlatform(Enum):
     SABER = "saber"
     MERCURIAL = "mercurial"
     ALDRIN = "aldrin"
+    PUMP_FUN = "pump_fun"
 
 
 @dataclass
@@ -138,6 +136,7 @@ class SolanaAnalyzer:
             "SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ": DEXPlatform.SABER,
             "MERLuDFBMmsHnsBPZw2sDQZHvXFMwp8EdjudcU2HKky": DEXPlatform.MERCURIAL,
             "AMM55ShdkoGRB5jVYPjWziwk8m5MpwyDgsMWHaMSQWH6": DEXPlatform.ALDRIN,
+            "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA": DEXPlatform.PUMP_FUN,  # Pump.fun AMM
         }
         
         # SOL相关地址
@@ -168,7 +167,9 @@ class SolanaAnalyzer:
                 transaction=transaction,
                 transaction_type=TransactionType.UNKNOWN
             )
-            
+
+
+
             # 计算Gas费用
             if transaction.fee:
                 result.gas_fee_sol = Decimal(transaction.fee) / Decimal(10**9)
