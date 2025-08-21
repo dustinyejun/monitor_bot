@@ -348,6 +348,13 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 获取配置的SOL转账监控金额阈值
             min_amount = Decimal(str(settings.sol_transfer_amount))
+            
+            # 检查转账的SOL金额
+            if analysis.transfer_info and analysis.transfer_info.amount:
+                sol_amount = float(analysis.transfer_info.amount)
+                if sol_amount >= min_amount:
+                    return True
+            
             return False
 
         except Exception as e:
@@ -361,7 +368,14 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 使用配置的代币转账监控金额阈值
             min_amount = Decimal(str(settings.token_transfer_amount))
-            return True
+            
+            # 检查转账的代币金额
+            if analysis.transfer_info and analysis.transfer_info.amount:
+                token_amount = float(analysis.transfer_info.amount)
+                if token_amount >= min_amount:
+                    return True
+            
+            return False
 
         except Exception as e:
             logger.warning(f"检查代币转账失败: {str(e)}")
@@ -374,7 +388,38 @@ class SolanaMonitorPlugin(MonitorPlugin):
 
             # 使用配置的DEX交换监控金额阈值
             min_amount = Decimal(str(settings.dex_swap_amount))
-            return True
+            
+            # 检查DEX交换的金额
+            if analysis.swap_info:
+                # 检查是否是SOL相关的交换（SOL兑换其他代币，或其他代币兑换SOL）
+                is_sol_swap = False
+                
+                # 检查from_token是否是SOL
+                if analysis.swap_info.from_token and (
+                    analysis.swap_info.from_token.symbol == "SOL" or 
+                    analysis.swap_info.from_token.mint == "So11111111111111111111111111111111111111112"  # SOL的mint地址
+                ):
+                    is_sol_swap = True
+                    
+                # 检查to_token是否是SOL
+                if analysis.swap_info.to_token and (
+                    analysis.swap_info.to_token.symbol == "SOL" or 
+                    analysis.swap_info.to_token.mint == "So11111111111111111111111111111111111111112"
+                ):
+                    is_sol_swap = True
+                
+                # 只有涉及SOL的交换才进行金额检查
+                if is_sol_swap:
+                    if analysis.swap_info.from_amount:
+                        from_amount = float(analysis.swap_info.from_amount)
+                        if from_amount >= min_amount:
+                            return True
+                    if analysis.swap_info.to_amount:
+                        to_amount = float(analysis.swap_info.to_amount)
+                        if to_amount >= min_amount:
+                            return True
+            
+            return False
 
         except Exception as e:
             logger.warning(f"检查DEX交换失败: {str(e)}")
